@@ -463,34 +463,48 @@ static void extractVideoIdAndTitleFromObject(id obj, NSString **outVideoId, NSSt
     }
 }
 
+// Pure C-runtime inheritance check. Proxies cannot intercept or fake this.
+static BOOL isRealClass(id obj, const char *targetClassName) {
+    if (!obj) return NO;
+    Class targetClass = objc_getClass(targetClassName);
+    if (!targetClass) return NO;
+    
+    Class cls = object_getClass(obj);
+    while (cls) {
+        if (cls == targetClass) return YES;
+        cls = class_getSuperclass(cls);
+    }
+    return NO;
+}
+
+// Pure C-runtime inheritance check. Proxies cannot intercept or fake this.
+static BOOL isRealClass(id obj, const char *targetClassName) {
+    if (!obj) return NO;
+    Class targetClass = objc_getClass(targetClassName);
+    if (!targetClass) return NO;
+    
+    Class cls = object_getClass(obj);
+    while (cls) {
+        if (cls == targetClass) return YES;
+        cls = class_getSuperclass(cls);
+    }
+    return NO;
+}
+
 static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *visited) {
     if (!obj) return;
     NSValue *ptrVal = [NSValue valueWithNonretainedObject:obj];
     if ([visited containsObject:ptrVal]) return;
-
-    // Ultimate Anti-Proxy Shield: Trace raw memory to the root class.
-    // Real UI components MUST inherit from NSObject. Proxies do not.
-    Class cls = object_getClass(obj);
-    Class rootClass = Nil;
-    while (cls) {
-        rootClass = cls;
-        cls = class_getSuperclass(cls);
-    }
-    
-    // If the foundation isn't NSObject, it's a proxy. Drop it immediately.
-    if (rootClass != objc_getClass("NSObject")) {
-        return; 
-    }
-
     [visited addObject:ptrVal];
     
     if (visited.count > 3000) return;
     
-    if (gActivePlayerVC && (obj == gActivePlayerVC || ([obj isKindOfClass:[UIView class]] && [(UIView *)obj isDescendantOfView:((UIViewController *)gActivePlayerVC).view]))) {
+    if (gActivePlayerVC && (obj == gActivePlayerVC || (isRealClass(obj, "UIView") && [(UIView *)obj isDescendantOfView:((UIViewController *)gActivePlayerVC).view]))) {
         return;
     }
     
-    NSString *clsName = NSStringFromClass([obj class]);
+    // Safer than [obj class]
+    NSString *clsName = NSStringFromClass(object_getClass(obj));
     if ([clsName containsString:@"Carousel"] || [clsName containsString:@"Recom"] || [clsName containsString:@"WatchNext"] || [clsName containsString:@"WatchPanel"]) return;
     
     if ([obj isKindOfClass:[NSArray class]]) {
@@ -527,11 +541,11 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         return;
     }
     
-    if ([obj isKindOfClass:[UICollectionView class]]) {
+    if (isRealClass(obj, "UICollectionView")) {
         UICollectionView *cv = (UICollectionView *)obj;
         id ds = cv.dataSource;
         if (ds && ds != cv) scanObjectForTracks(ds, tracks, visited);
-    } else if ([obj isKindOfClass:[UITableView class]]) {
+    } else if (isRealClass(obj, "UITableView")) {
         UITableView *tv = (UITableView *)obj;
         id ds = tv.dataSource;
         if (ds && ds != tv) scanObjectForTracks(ds, tracks, visited);
@@ -550,37 +564,37 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     ];
     for (NSString *selName in selNames) {
         SEL sel = NSSelectorFromString(selName);
-        if ([obj respondsToSelector:sel]) {
+        // Safer than [obj respondsToSelector:]
+        if (class_respondsToSelector(object_getClass(obj), sel)) {
             id child = callObjectSelector(obj, sel);
             if (child) scanObjectForTracks(child, tracks, visited);
         }
     }
     
-    if ([obj isKindOfClass:[UIView class]]) {
+    if (isRealClass(obj, "UIView")) {
         UIView *v = (UIView *)obj;
-        if (class_getInstanceVariable([v class], "_controller") != NULL) {
+        if (class_getInstanceVariable(object_getClass(v), "_controller") != NULL) {
             id controller = [v valueForKey:@"_controller"];
             if (controller) scanObjectForTracks(controller, tracks, visited);
         }
         for (UIView *sub in v.subviews) {
             scanObjectForTracks(sub, tracks, visited);
         }
-    } else if ([obj isKindOfClass:[UIViewController class]]) {
+    } else if (isRealClass(obj, "UIViewController")) {
         UIViewController *vc = (UIViewController *)obj;
         if (gActivePlayerVC && vc == gActivePlayerVC) return;
         
         @try {
             // CRITICAL FIX: Only ask for the view if it is already physically loaded.
-            // Forcing an unloaded Google UI controller to load its view will crash the app.
-            if ([vc respondsToSelector:@selector(isViewLoaded)] && [vc isViewLoaded]) {
-                if ([vc respondsToSelector:@selector(view)]) {
+            if (class_respondsToSelector(object_getClass(vc), @selector(isViewLoaded))) {
+                if ([vc isViewLoaded] && class_respondsToSelector(object_getClass(vc), @selector(view))) {
                     UIView *v = vc.view;
                     if (v) scanObjectForTracks(v, tracks, visited);
                 }
             }
             
-            // Safely check for children without forcing them to initialize
-            if ([vc respondsToSelector:@selector(childViewControllers)]) {
+            // Safely check for children
+            if (class_respondsToSelector(object_getClass(vc), @selector(childViewControllers))) {
                 NSArray *children = vc.childViewControllers;
                 for (UIViewController *child in children) {
                     if (gActivePlayerVC && child == gActivePlayerVC) continue;
@@ -589,12 +603,12 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
             }
             
             // Safely check for presented controllers
-            if ([vc respondsToSelector:@selector(presentedViewController)]) {
+            if (class_respondsToSelector(object_getClass(vc), @selector(presentedViewController))) {
                 UIViewController *presented = vc.presentedViewController;
                 if (presented) scanObjectForTracks(presented, tracks, visited);
             }
         } @catch (NSException *e) {
-            // If YouTube Music throws an internal fit, silently catch it and keep scanning
+            // Silently catch UI quirks
         }
     }
 }
