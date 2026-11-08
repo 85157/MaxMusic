@@ -467,19 +467,20 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     if (!obj) return;
     NSValue *ptrVal = [NSValue valueWithNonretainedObject:obj];
     if ([visited containsObject:ptrVal]) return;
-    
-    // C-level runtime check to physically verify if the object is an NSProxy
-    // This cannot be intercepted or lied to by LiveContainer's proxies.
+
+    // Ultimate Anti-Proxy Shield: Trace raw memory to the root class.
+    // Real UI components MUST inherit from NSObject. Proxies do not.
     Class cls = object_getClass(obj);
-    BOOL isRuntimeProxy = NO;
+    Class rootClass = Nil;
     while (cls) {
-        if (cls == objc_getClass("NSProxy")) {
-            isRuntimeProxy = YES;
-            break;
-        }
+        rootClass = cls;
         cls = class_getSuperclass(cls);
     }
-    if (isRuntimeProxy) return;
+    
+    // If the foundation isn't NSObject, it's a proxy. Drop it immediately.
+    if (rootClass != objc_getClass("NSObject")) {
+        return; 
+    }
 
     [visited addObject:ptrVal];
     
