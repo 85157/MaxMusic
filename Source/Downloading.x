@@ -467,8 +467,19 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     if (!obj) return;
     NSValue *ptrVal = [NSValue valueWithNonretainedObject:obj];
     if ([visited containsObject:ptrVal]) return;
-
-    if ([obj isProxy]) return;
+    
+    // C-level runtime check to physically verify if the object is an NSProxy
+    // This cannot be intercepted or lied to by LiveContainer's proxies.
+    Class cls = object_getClass(obj);
+    BOOL isRuntimeProxy = NO;
+    while (cls) {
+        if (cls == objc_getClass("NSProxy")) {
+            isRuntimeProxy = YES;
+            break;
+        }
+        cls = class_getSuperclass(cls);
+    }
+    if (isRuntimeProxy) return;
 
     [visited addObject:ptrVal];
     
