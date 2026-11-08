@@ -467,6 +467,9 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
     if (!obj) return;
     NSValue *ptrVal = [NSValue valueWithNonretainedObject:obj];
     if ([visited containsObject:ptrVal]) return;
+
+    if ([obj isProxy]) return;
+
     [visited addObject:ptrVal];
     
     if (visited.count > 3000) return;
