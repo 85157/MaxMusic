@@ -554,7 +554,10 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         UIViewController *vc = (UIViewController *)obj;
         if (gActivePlayerVC && vc == gActivePlayerVC) return;
         
-        if (vc.view) scanObjectForTracks(vc.view, tracks, visited);
+        if ([vc respondsToSelector:@selector(view)]) {
+            UIView *v = [vc performSelector:@selector(view)];
+            if (v) scanObjectForTracks(v, tracks, visited);
+        }
         for (UIViewController *child in vc.childViewControllers) {
             if (gActivePlayerVC && child == gActivePlayerVC) continue;
             scanObjectForTracks(child, tracks, visited);
