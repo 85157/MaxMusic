@@ -557,10 +557,15 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         UIViewController *vc = (UIViewController *)obj;
         if (gActivePlayerVC && vc == gActivePlayerVC) return;
         
-        if ([vc respondsToSelector:@selector(view)]) {
-            UIView *v = [vc performSelector:@selector(view)];
-            if (v) scanObjectForTracks(v, tracks, visited);
+        @try {
+            if ([vc respondsToSelector:@selector(view)]) {
+                UIView *v = [vc performSelector:@selector(view)];
+                if (v) scanObjectForTracks(v, tracks, visited);
+            }
+        } @catch (NSException *e) {
+            // Silently ignore deceptive proxies that crash when asked for their view
         }
+
         for (UIViewController *child in vc.childViewControllers) {
             if (gActivePlayerVC && child == gActivePlayerVC) continue;
             scanObjectForTracks(child, tracks, visited);
