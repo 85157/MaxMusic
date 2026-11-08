@@ -568,20 +568,29 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         UIViewController *vc = (UIViewController *)obj;
         if (gActivePlayerVC && vc == gActivePlayerVC) return;
         
-        @try {
-            if ([vc respondsToSelector:@selector(view)]) {
-                UIView *v = [vc performSelector:@selector(view)];
-                if (v) scanObjectForTracks(v, tracks, visited);
+        // Get the actual memory class, bypassing Objective-C message forwarding
+        Class vcClass = object_getClass(vc);
+        
+        // 1. Safely check for and scan .view
+        if (class_respondsToSelector(vcClass, @selector(view))) {
+            UIView *v = [vc performSelector:@selector(view)];
+            if (v) scanObjectForTracks(v, tracks, visited);
+        }
+        
+        // 2. Safely check for and scan .childViewControllers
+        if (class_respondsToSelector(vcClass, @selector(childViewControllers))) {
+            NSArray *children = [vc performSelector:@selector(childViewControllers)];
+            for (UIViewController *child in children) {
+                if (gActivePlayerVC && child == gActivePlayerVC) continue;
+                scanObjectForTracks(child, tracks, visited);
             }
-        } @catch (NSException *e) {
-            // Silently ignore deceptive proxies that crash when asked for their view
         }
-
-        for (UIViewController *child in vc.childViewControllers) {
-            if (gActivePlayerVC && child == gActivePlayerVC) continue;
-            scanObjectForTracks(child, tracks, visited);
+        
+        // 3. Safely check for and scan .presentedViewController
+        if (class_respondsToSelector(vcClass, @selector(presentedViewController))) {
+            UIViewController *presented = [vc performSelector:@selector(presentedViewController)];
+            if (presented) scanObjectForTracks(presented, tracks, visited);
         }
-        if (vc.presentedViewController) scanObjectForTracks(vc.presentedViewController, tracks, visited);
     }
 }
 
