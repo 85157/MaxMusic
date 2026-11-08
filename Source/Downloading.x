@@ -569,28 +569,32 @@ static void scanObjectForTracks(id obj, NSMutableArray *tracks, NSMutableSet *vi
         UIViewController *vc = (UIViewController *)obj;
         if (gActivePlayerVC && vc == gActivePlayerVC) return;
         
-        // Get the actual memory class, bypassing Objective-C message forwarding
-        Class vcClass = object_getClass(vc);
-        
-        // 1. Safely check for and scan .view
-        if (class_respondsToSelector(vcClass, @selector(view))) {
-            UIView *v = [vc performSelector:@selector(view)];
-            if (v) scanObjectForTracks(v, tracks, visited);
-        }
-        
-        // 2. Safely check for and scan .childViewControllers
-        if (class_respondsToSelector(vcClass, @selector(childViewControllers))) {
-            NSArray *children = [vc performSelector:@selector(childViewControllers)];
-            for (UIViewController *child in children) {
-                if (gActivePlayerVC && child == gActivePlayerVC) continue;
-                scanObjectForTracks(child, tracks, visited);
+        @try {
+            // CRITICAL FIX: Only ask for the view if it is already physically loaded.
+            // Forcing an unloaded Google UI controller to load its view will crash the app.
+            if ([vc respondsToSelector:@selector(isViewLoaded)] && [vc isViewLoaded]) {
+                if ([vc respondsToSelector:@selector(view)]) {
+                    UIView *v = vc.view;
+                    if (v) scanObjectForTracks(v, tracks, visited);
+                }
             }
-        }
-        
-        // 3. Safely check for and scan .presentedViewController
-        if (class_respondsToSelector(vcClass, @selector(presentedViewController))) {
-            UIViewController *presented = [vc performSelector:@selector(presentedViewController)];
-            if (presented) scanObjectForTracks(presented, tracks, visited);
+            
+            // Safely check for children without forcing them to initialize
+            if ([vc respondsToSelector:@selector(childViewControllers)]) {
+                NSArray *children = vc.childViewControllers;
+                for (UIViewController *child in children) {
+                    if (gActivePlayerVC && child == gActivePlayerVC) continue;
+                    scanObjectForTracks(child, tracks, visited);
+                }
+            }
+            
+            // Safely check for presented controllers
+            if ([vc respondsToSelector:@selector(presentedViewController)]) {
+                UIViewController *presented = vc.presentedViewController;
+                if (presented) scanObjectForTracks(presented, tracks, visited);
+            }
+        } @catch (NSException *e) {
+            // If YouTube Music throws an internal fit, silently catch it and keep scanning
         }
     }
 }
